@@ -1,6 +1,7 @@
 #Pacman in Python with PyGame
 #https://github.com/hbokmann/Pacman
-  
+#import heapg
+import math
 import pygame
   
 black = (0,0,0)
@@ -220,7 +221,16 @@ class Ghost(Player):
         return [turn,steps]
       except IndexError:
          return [0,0]
-
+# Create grid for Pathfinding AI implementation below
+def generate_grid(wall_list, cell_size=30, grid_size=19):
+   grid = [[0 for i in range(grid_size)] for j in range(grid_size)]
+   for walls in wall_list:
+      x = walls.rect.left//cell_size
+      y = walls.rect.top//cell_size
+      #below creates walls
+      if 0 <= x < grid_size and 0 <= y < grid_size:
+         grid[y][x] = 1 
+      return grid
 Pinky_directions = [
 [0,-30,4],
 [15,0,9],
