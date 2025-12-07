@@ -25,6 +25,11 @@ pygame.mixer.init()
 pygame.mixer.music.load('pacman.mp3')
 pygame.mixer.music.play(-1, 0.0)
 
+CELL_SIZE = 30
+
+def snap_to_grid(x, y):
+    return (x // CELL_SIZE) * CELL_SIZE, (y // CELL_SIZE) * CELL_SIZE
+
 # This class represents the bar at the bottom that the player controls
 class Wall(pygame.sprite.Sprite):
     # Constructor function
@@ -222,7 +227,7 @@ def generate_grid(wall_list, cell_size=30, grid_size=19):
       #below creates walls
       if 0 <= x < grid_size and 0 <= y < grid_size:
          grid[y][x] = 1 
-      return grid
+   return grid
 Pinky_directions = [
 [0,-30,4],
 [15,0,9],
@@ -333,6 +338,29 @@ pl = len(Pinky_directions)-1
 bl = len(Blinky_directions)-1
 il = len(Inky_directions)-1
 cl = len(Clyde_directions)-1
+
+#RESET FUNCTION
+#So ghosts aren't stuck on top of pacman on start
+def reset_game(pacman, ghosts, blocks, pellets):
+    # Reset Pac-Man
+    pacman.rect.left = pacman.spawn_x
+    pacman.rect.top  = pacman.spawn_y
+    pacman.current_target = None
+    pacman.path = []
+
+    # Reset the Ghosts
+    for g in ghosts:
+        g.rect.left = g.spawn_x
+        g.rect.top  = g.spawn_y
+        g.current_target = None
+        g.path = []
+
+    # Reset the pellets pac pac will eat
+    for p in pellets:
+        p.eaten = False 
+
+    # Optional score reset
+    pacman.score = 0
 
 # Search Algorithm Implementation
 # Fix the SearchAlgorithm class
@@ -463,7 +491,7 @@ class AIPacman(Player):
         self.algorithm = algorithm
         self.path = []
         self.current_target = None
-        self.ghost_safety_distance = 120
+        self.ghost_safety_distance = 90
         self.last_path_update = 0
         self.path_update_delay = 500  # ms between path recalculations
         self.stuck_timer = 0
@@ -488,9 +516,10 @@ class AIPacman(Player):
             self.last_position = current_pos
         
         # Only recalculate path occasionally to improve performance
-    
-        self.find_new_target(block_list, monsta_list, walls)
-        self.last_path_update = current_time
+        # Only calculate every few seconds instead of frame, which was the issue in past
+        if current_time - self.last_path_update > self.path_update_delay or not self.path:
+            self.find_new_target(block_list, monsta_list, walls)
+            self.last_path_update = current_time
         
         # Reset movement before setting new direction
         self.change_x = 0
@@ -499,7 +528,8 @@ class AIPacman(Player):
         # Follow the path
         if self.path and len(self.path) > 0:
             target_x, target_y = self.path[0]
-            
+            dx = target_x - self.rect.left
+            dy = target_y - self.rect.top
             # Check if we're close enough to the target (within tolerance)
             distance_to_target = abs(target_x - self.rect.left) + abs(target_y - self.rect.top)
             
@@ -554,8 +584,10 @@ class AIPacman(Player):
         if self.current_target:
             searcher = SearchAlgorithm(walls)
             
-            if self.algorithm == "A*":
-                self.path = searcher.a_star_search(current_pos, self.current_target)
+            if self.algorithm == "A*": #MODIFIED A STAR - made pacman follow path
+                sx, sy = snap_to_grid(self.rect.left, self.rect.top)
+                tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
+                self.path = searcher.a_star_search((sx, sy), (tx, ty))
             elif self.algorithm == "GBFS":
                 self.path = searcher.greedy_best_first_search(current_pos, self.current_target)
             elif self.algorithm == "UCS":
@@ -769,22 +801,33 @@ def startGame(algorithm="A*"):
     Pacman = AIPacman(w, p_h, "images/Trollman.png", algorithm)
     all_sprites_list.add(Pacman)
     pacman_collide.add(Pacman)
-   
+
+    Pacman.spawn_x = Pacman.rect.left
+    Pacman.spawn_y = Pacman.rect.top
+
     Blinky=Ghost(w, b_h, "images/Blinky.png")
     monsta_list.add(Blinky)
     all_sprites_list.add(Blinky)
+    Blinky.spawn_x = Blinky.rect.left
+    Blinky.spawn_y = Blinky.rect.top
 
     Pinky=Ghost(w, m_h, "images/Pinky.png")
     monsta_list.add(Pinky)
     all_sprites_list.add(Pinky)
-   
+    Pinky.spawn_x = Pinky.rect.left
+    Pinky.spawn_y = Pinky.rect.top
+
     Inky=Ghost(i_w, m_h, "images/Inky.png")
     monsta_list.add(Inky)
     all_sprites_list.add(Inky)
-   
+    Inky.spawn_x = Inky.rect.left
+    Inky.spawn_y = Inky.rect.top
+
     Clyde=Ghost(c_w, m_h, "images/Clyde.png")
     monsta_list.add(Clyde)
     all_sprites_list.add(Clyde)
+    Clyde.spawn_x = Clyde.rect.left
+    Clyde.spawn_y = Clyde.rect.top
 
     # Draw the grid
     for row in range(19):
@@ -838,6 +881,9 @@ def startGame(algorithm="A*"):
                     return "menu"
                 elif event.key == pygame.K_ESCAPE: 
                     pygame.quit()
+                elif event.key == pygame.K_RETURN:
+                    reset_game(Pacman, monsta_list, block_list, block_list)
+                    return "restart"
 
         # Update game state
         Pacman.update(wall_list, gate, block_list, monsta_list)
@@ -908,7 +954,8 @@ def startGame(algorithm="A*"):
                    dots_collected, ghosts_avoided, algorithm_changes, algorithm)
             if result == "menu":
                 return "menu"
-
+            elif result == "restart":
+                return startGame(algorithm)
         # Check for ghost collision
         monsta_hit_list = pygame.sprite.spritecollide(Pacman, monsta_list, False)
         if monsta_hit_list:
@@ -920,6 +967,8 @@ def startGame(algorithm="A*"):
                    dots_collected, ghosts_avoided, algorithm_changes, algorithm)
             if result == "menu":
                 return "menu"
+            elif result == "restart":
+                return startGame(algorithm)
 
         pygame.display.flip()
         clock.tick(10)
@@ -939,12 +988,12 @@ def doNext(message, left, all_sprites_list, block_list, monsta_list,
                     pygame.quit()
                     return "quit"
                 if event.key == pygame.K_RETURN:
-                    del all_sprites_list
-                    del block_list
-                    del monsta_list
-                    del pacman_collide
-                    del wall_list
-                    del gate
+                    #del all_sprites_list
+                    #del block_list
+                    #del monsta_list
+                    #del pacman_collide
+                    #del wall_list
+                    #del gate
                     return "restart"
                 if event.key == pygame.K_m:
                     return "menu"
@@ -1003,7 +1052,10 @@ def main():
             break
         elif result == "menu":
             continue  # Go back to menu
+        elif result == "restart":
+            continue #restart and keep selected alg
 
 if __name__ == "__main__":
     main()
     pygame.quit()
+
