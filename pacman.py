@@ -562,7 +562,29 @@ class AIPacman(Player):
         
         # Call parent update to handle collisions
         super().update(walls, gate)
+    #prioritize safe tiles and then reset path 
+    def get_random_safe_move(self, monsta_list, walls):
+        searcher = SearchAlgorithm(walls)
+        neighbors = searcher.get_neighbors(self.rect.left, self.rect.top)
+
+        safe_moves = []
+        for x, y in neighbors:
+            safe = True
+            for ghost in monsta_list:
+                if self.manhattan_distance(x, y, ghost.rect.left, ghost.rect.top) < self.ghost_safety_distance:
+                    safe = False
+                    break
+            if safe:
+                safe_moves.append((x, y))
+
+        # pick a reasonable move
+        if safe_moves:
+            return [random.choice(safe_moves)]
+        elif neighbors:
+            return [random.choice(neighbors)]
         
+        # if trapped
+        return []    
     def find_new_target(self, block_list, monsta_list, walls):
         current_pos = (self.rect.left, self.rect.top)
         
@@ -583,11 +605,19 @@ class AIPacman(Player):
         # Calculate path to target
         if self.current_target:
             searcher = SearchAlgorithm(walls)
-            
+            start = snap_to_grid(self.rect.left, self.rect.top)
+            goal = snap_to_grid(self.current_target[0], self.current_target[1])
+
+            #sx, sy = snap_to_grid(self.rect.left, self.rect.top)
+            #tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
             if self.algorithm == "A*": #MODIFIED A STAR - made pacman follow path
-                sx, sy = snap_to_grid(self.rect.left, self.rect.top)
-                tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
-                self.path = searcher.a_star_search((sx, sy), (tx, ty))
+                new_path = searcher.a_star_search(start, goal)
+                #sx, sy = snap_to_grid(self.rect.left, self.rect.top)
+                #tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
+                #self.path = searcher.a_star_search((sx, sy), (tx, ty))
+                if not new_path:
+                    new_path = self.get_random_safe_move(monsta_list, walls)
+                self.path = new_path
             elif self.algorithm == "GBFS":
                 self.path = searcher.greedy_best_first_search(current_pos, self.current_target)
             elif self.algorithm == "UCS":
