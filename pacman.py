@@ -361,19 +361,46 @@ class SearchAlgorithm:
         collisions = pygame.sprite.spritecollide(test_sprite, self.walls, False)
         return len(collisions) == 0
     
-    def get_neighbors(self, x, y):
+    def get_neighbors(self, x, y, algorithm="A*"):
         neighbors = []
-        directions = [
-            (self.block_size, 0),   # Right
-            (-self.block_size, 0),  # Left  
-            (0, self.block_size),   # Down
-            (0, -self.block_size)   # Up
-        ]
+        # Different direction orders for different algorithms
+        if algorithm == "GBFS":
+            # GBFS: Try directions that get closer to goal first (heuristic-based order)
+            directions = [
+                (self.block_size, 0),   # Right
+                (0, self.block_size),   # Down  
+                (-self.block_size, 0),  # Left
+                (0, -self.block_size)   # Up
+            ]
+        elif algorithm == "UCS":
+            # UCS: Try cheaper directions first (cost-based order)
+            directions = [
+                (0, -self.block_size),  # Up (cheapest at 0.8)
+                (self.block_size, 0),   # Right (1.0)
+                (-self.block_size, 0),  # Left (1.0)
+                (0, self.block_size),   # Down (most expensive at 1.2)
+            ]
+        else:  # A*
+            # A*: Standard order
+            directions = [
+                (self.block_size, 0),   # Right
+                (-self.block_size, 0),  # Left  
+                (0, self.block_size),   # Down
+                (0, -self.block_size)   # Up
+            ]
+        
+        # Add random variations to costs to create more differences between algorithms
+        costs = {
+            (self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),    # Right
+            (-self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),   # Left  
+            (0, self.block_size): 1.2 + random.uniform(-0.1, 0.1),    # Down
+            (0, -self.block_size): 0.8 + random.uniform(-0.1, 0.1)    # Up
+        }
         
         for dx, dy in directions:
             new_x, new_y = x + dx, y + dy
             if self.is_valid_position(new_x, new_y):
-                neighbors.append((new_x, new_y))
+                neighbors.append(((new_x, new_y), costs[(dx, dy)]))
         return neighbors
     
     def manhattan_distance(self, x1, y1, x2, y2):
@@ -418,20 +445,25 @@ class SearchAlgorithm:
                 path.reverse()
                 return path
                 
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                if neighbor in visited:
+            for neighbor_info in self.get_neighbors(current[0], current[1], "A*"):
+                neighbor_pos, cost = neighbor_info
+                
+                if neighbor_pos in visited:
                     continue
                     
-                tentative_g_score = g_score[current] + 1
+                tentative_g_score = g_score[current] + cost
                 
-                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score[neighbor] = tentative_g_score + self.manhattan_distance(
-                        neighbor[0], neighbor[1], aligned_goal[0], aligned_goal[1])
-                    heapq.heappush(open_set, (f_score[neighbor], neighbor))
+                if neighbor_pos not in g_score or tentative_g_score < g_score[neighbor_pos]:
+                    came_from[neighbor_pos] = current
+                    g_score[neighbor_pos] = tentative_g_score
+                    h_score = self.manhattan_distance(
+                        neighbor_pos[0], neighbor_pos[1], 
+                        aligned_goal[0], aligned_goal[1]
+                    )
+                    f_score[neighbor_pos] = tentative_g_score + h_score
+                    heapq.heappush(open_set, (f_score[neighbor_pos], neighbor_pos))
         
-        return []  # No path found
+        return []
     
     def greedy_best_first_search(self, start, goal):
         # Align start to Pacman grid
@@ -458,13 +490,18 @@ class SearchAlgorithm:
                 path.reverse()
                 return path
                 
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                if neighbor not in visited:
-                    came_from[neighbor] = current
-                    priority = self.manhattan_distance(neighbor[0], neighbor[1], aligned_goal[0], aligned_goal[1])
-                    heapq.heappush(open_set, (priority, neighbor))
+            for neighbor_info in self.get_neighbors(current[0], current[1], "GBFS"):
+                neighbor_pos, _ = neighbor_info  # GBFS ignores cost
+                
+                if neighbor_pos not in visited:
+                    came_from[neighbor_pos] = current
+                    priority = self.manhattan_distance(
+                        neighbor_pos[0], neighbor_pos[1], 
+                        aligned_goal[0], aligned_goal[1]
+                    )
+                    heapq.heappush(open_set, (priority, neighbor_pos))
         
-        return []  # No path found
+        return []
     
     def uniform_cost_search(self, start, goal):
         # Align start to Pacman grid
@@ -487,15 +524,16 @@ class SearchAlgorithm:
                 path.reverse()
                 return path
                 
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                new_cost = cost_so_far[current] + 1
+            for neighbor_info in self.get_neighbors(current[0], current[1], "UCS"):
+                neighbor_pos, cost = neighbor_info
+                new_cost = cost_so_far[current] + cost
                 
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    came_from[neighbor] = current
-                    heapq.heappush(open_set, (new_cost, neighbor))
+                if neighbor_pos not in cost_so_far or new_cost < cost_so_far[neighbor_pos]:
+                    cost_so_far[neighbor_pos] = new_cost
+                    came_from[neighbor_pos] = current
+                    heapq.heappush(open_set, (new_cost, neighbor_pos))
         
-        return []  # No path found
+        return []
 
 class AIPacman(Player):
     """AI-controlled Pacman using search algorithms"""
@@ -514,7 +552,7 @@ class AIPacman(Player):
         # Ghost avoidance
         self.is_running_away = False
         self.ghost_danger_distance = 90  # Reduced distance
-        self.ghost_ignore_distance = 180  # Ignore ghosts beyond this
+        self.ghost_ignore_distance = 180
         
         # Track last position to detect stuck state
         self.last_positions = []
@@ -660,23 +698,6 @@ class AIPacman(Player):
         
         return points
     
-    def get_closest_ghost_simple(self, monsta_list):
-        """Simple ghost distance calculation (fallback)"""
-        if not monsta_list:
-            return None, float('inf')
-            
-        closest_ghost = None
-        min_distance = float('inf')
-        
-        for ghost in monsta_list:
-            distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
-                               (ghost.rect.centery - self.rect.centery) ** 2)
-            
-            if distance < min_distance:
-                min_distance = distance
-                closest_ghost = ghost
-        
-        return closest_ghost, min_distance
     
     def run_away_from_ghost(self, ghost, walls):
         """Smart ghost avoidance - move away from reachable ghosts"""
