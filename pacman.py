@@ -1,7 +1,6 @@
 #Pacman in Python with PyGame
 #https://github.com/hbokmann/Pacman
 
-  
 import pygame
 import heapq
 import math
@@ -24,11 +23,6 @@ pygame.display.set_icon(Trollicon)
 pygame.mixer.init()
 pygame.mixer.music.load('pacman.mp3')
 pygame.mixer.music.play(-1, 0.0)
-
-CELL_SIZE = 30
-
-def snap_to_grid(x, y):
-    return (x // CELL_SIZE) * CELL_SIZE, (y // CELL_SIZE) * CELL_SIZE
 
 # This class represents the bar at the bottom that the player controls
 class Wall(pygame.sprite.Sprite):
@@ -218,16 +212,7 @@ class Ghost(Player):
         return [turn,steps]
       except IndexError:
          return [0,0]
-# Create grid for Pathfinding AI implementation below
-def generate_grid(wall_list, cell_size=30, grid_size=19):
-   grid = [[0 for i in range(grid_size)] for j in range(grid_size)]
-   for walls in wall_list:
-      x = walls.rect.left//cell_size
-      y = walls.rect.top//cell_size
-      #below creates walls
-      if 0 <= x < grid_size and 0 <= y < grid_size:
-         grid[y][x] = 1 
-   return grid
+
 Pinky_directions = [
 [0,-30,4],
 [15,0,9],
@@ -339,73 +324,119 @@ bl = len(Blinky_directions)-1
 il = len(Inky_directions)-1
 cl = len(Clyde_directions)-1
 
-#RESET FUNCTION
-#So ghosts aren't stuck on top of pacman on start
-def reset_game(pacman, ghosts, blocks, pellets):
-    # Reset Pac-Man
-    pacman.rect.left = pacman.spawn_x
-    pacman.rect.top  = pacman.spawn_y
-    pacman.current_target = None
-    pacman.path = []
-
-    # Reset the Ghosts
-    for g in ghosts:
-        g.rect.left = g.spawn_x
-        g.rect.top  = g.spawn_y
-        g.current_target = None
-        g.path = []
-
-    # Reset the pellets pac pac will eat
-    for p in pellets:
-        p.eaten = False 
-
-    # Optional score reset
-    pacman.score = 0
-
 # Search Algorithm Implementation
-# Fix the SearchAlgorithm class
 class SearchAlgorithm:
     def __init__(self, walls, block_size=30):
         self.walls = walls
         self.block_size = block_size
+        self.grid_offset = 6 # Pacman's grid offset
+        self.dot_offset = 32  # Dots are offset by 32 pixels (6 + 26)
         
-    def is_valid_position(self, x, y):
-        # Create a test sprite with Pacman's actual size
-        test_sprite = pygame.sprite.Sprite()
-        test_sprite.rect = pygame.Rect(x, y, 30, 30)  # Pacman's size
-        return not pygame.sprite.spritecollide(test_sprite, self.walls, False)
     
-    def get_neighbors(self, x, y):
+    def get_grid_cell(self, x, y, is_dot=False):
+        """Get the grid cell coordinates for a position"""
+        offset = self.dot_offset if is_dot is True else self.grid_offset
+        grid_x = (x - offset) // self.block_size
+        grid_y = (y - offset) // self.block_size
+
+        aligned_x = grid_x * self.block_size + offset
+        aligned_y = grid_y * self.block_size + offset
+        
+        aligned_x = max(offset, min(aligned_x, 606 - offset - self.block_size))
+        aligned_y = max(offset, min(aligned_y, 606 - offset - self.block_size)) 
+
+        return (aligned_x, aligned_y)
+    
+
+    def is_valid_position(self, x, y):
+        # Create a test sprite with Pacman's actual size (30x30)
+        test_sprite = pygame.sprite.Sprite()
+        test_sprite.rect = pygame.Rect(x, y, 30, 30)
+        
+        # Check if position is within bounds
+        if x < 6 or x > 570 or y < 6 or y > 570:
+            return False
+            
+        # Check for wall collisions
+        collisions = pygame.sprite.spritecollide(test_sprite, self.walls, False)
+        return len(collisions) == 0
+    
+    def get_neighbors(self, x, y, algorithm="A*"):
         neighbors = []
-        directions = [
-            (self.block_size, 0),   # Right
-            (-self.block_size, 0),  # Left  
-            (0, self.block_size),   # Down
-            (0, -self.block_size)   # Up
-        ]
+        # Different direction orders for different algorithms
+        if algorithm == "GBFS":
+            # GBFS: Try directions that get closer to goal first (heuristic-based order)
+            directions = [
+                (self.block_size, 0),   # Right
+                (0, self.block_size),   # Down  
+                (-self.block_size, 0),  # Left
+                (0, -self.block_size)   # Up
+            ]
+        elif algorithm == "UCS":
+            # UCS: Try cheaper directions first (cost-based order)
+            directions = [
+                (0, -self.block_size),  # Up (cheapest at 0.8)
+                (self.block_size, 0),   # Right (1.0)
+                (-self.block_size, 0),  # Left (1.0)
+                (0, self.block_size),   # Down (most expensive at 1.2)
+            ]
+        else:  # A*
+            # A*: Standard order
+            directions = [
+                (self.block_size, 0),   # Right
+                (-self.block_size, 0),  # Left  
+                (0, self.block_size),   # Down
+                (0, -self.block_size)   # Up
+            ]
+        
+        # Add random variations to costs to create more differences between algorithms
+        costs = {
+            (self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),    # Right
+            (-self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),   # Left  
+            (0, self.block_size): 1.2 + random.uniform(-0.1, 0.1),    # Down
+            (0, -self.block_size): 0.8 + random.uniform(-0.1, 0.1)    # Up
+        }
         
         for dx, dy in directions:
             new_x, new_y = x + dx, y + dy
-            # Check bounds - make sure Pacman stays within screen
-            if 0 <= new_x <= 576 and 0 <= new_y <= 576:
-                if self.is_valid_position(new_x, new_y):
-                    neighbors.append((new_x, new_y))
+            if self.is_valid_position(new_x, new_y):
+                neighbors.append(((new_x, new_y), costs[(dx, dy)]))
         return neighbors
     
     def manhattan_distance(self, x1, y1, x2, y2):
-        return abs(x1 - x2) + abs(y1 - y2)
+        # Calculate grid distance using Pacman's grid
+        grid_x1 = (x1 - self.grid_offset) // self.block_size
+        grid_y1 = (y1 - self.grid_offset) // self.block_size
+        grid_x2 = (x2 - self.grid_offset) // self.block_size
+        grid_y2 = (y2 - self.grid_offset) // self.block_size
+        return abs(grid_x1 - grid_x2) + abs(grid_y1 - grid_y2)
     
     def a_star_search(self, start, goal):
+        # Align start and goal to Pacman's grid 
+        aligned_start = self.get_grid_cell(start[0], start[1], is_dot=False)
+        aligned_goal = self.get_grid_cell(goal[0], goal[1], is_dot=False)
+
+        print(f"A*: From {start}->{aligned_start} to {goal}->{aligned_goal}")
+        
+        if aligned_start == aligned_goal:
+            return []
+        
         open_set = []
-        heapq.heappush(open_set, (0, start))
+        heapq.heappush(open_set, (0, aligned_start))
         came_from = {}
-        g_score = {start: 0}
-        f_score = {start: self.manhattan_distance(start[0], start[1], goal[0], goal[1])}
+        g_score = {aligned_start: 0}
+        f_score = {aligned_start: self.manhattan_distance(aligned_start[0], aligned_start[1], aligned_goal[0], aligned_goal[1])}
+        
+        visited = set()
         
         while open_set:
             current_f, current = heapq.heappop(open_set)
             
-            if current == goal:
+            if current in visited:
+                continue
+            visited.add(current)
+            
+            if current == aligned_goal:
                 # Reconstruct path
                 path = []
                 while current in came_from:
@@ -414,57 +445,44 @@ class SearchAlgorithm:
                 path.reverse()
                 return path
                 
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                tentative_g_score = g_score[current] + 1
+            for neighbor_info in self.get_neighbors(current[0], current[1], "A*"):
+                neighbor_pos, cost = neighbor_info
                 
-                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score[neighbor] = tentative_g_score + self.manhattan_distance(
-                        neighbor[0], neighbor[1], goal[0], goal[1])
-                    heapq.heappush(open_set, (f_score[neighbor], neighbor))
+                if neighbor_pos in visited:
+                    continue
                     
-        return []  # No path found
+                tentative_g_score = g_score[current] + cost
+                
+                if neighbor_pos not in g_score or tentative_g_score < g_score[neighbor_pos]:
+                    came_from[neighbor_pos] = current
+                    g_score[neighbor_pos] = tentative_g_score
+                    h_score = self.manhattan_distance(
+                        neighbor_pos[0], neighbor_pos[1], 
+                        aligned_goal[0], aligned_goal[1]
+                    )
+                    f_score[neighbor_pos] = tentative_g_score + h_score
+                    heapq.heappush(open_set, (f_score[neighbor_pos], neighbor_pos))
+        
+        return []
     
     def greedy_best_first_search(self, start, goal):
+        # Align start to Pacman grid
+        aligned_start = self.get_grid_cell(start[0], start[1], is_dot=False)
+        aligned_goal = self.get_grid_cell(goal[0], goal[1], is_dot=False)
+        
         open_set = []
-        heapq.heappush(open_set, (self.manhattan_distance(start[0], start[1], goal[0], goal[1]), start))
+        heapq.heappush(open_set, (self.manhattan_distance(aligned_start[0], aligned_start[1], aligned_goal[0], aligned_goal[1]), aligned_start))
         came_from = {}
         visited = set()
         
         while open_set:
             current_priority, current = heapq.heappop(open_set)
             
-            if current == goal:
-                path = []
-                while current in came_from:
-                    path.append(current)
-                    current = came_from[current]
-                path.reverse()
-                return path
-                
             if current in visited:
                 continue
             visited.add(current)
             
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                if neighbor not in visited:
-                    came_from[neighbor] = current
-                    priority = self.manhattan_distance(neighbor[0], neighbor[1], goal[0], goal[1])
-                    heapq.heappush(open_set, (priority, neighbor))
-                    
-        return []
-    
-    def uniform_cost_search(self, start, goal):
-        open_set = []
-        heapq.heappush(open_set, (0, start))
-        came_from = {}
-        cost_so_far = {start: 0}
-        
-        while open_set:
-            current_cost, current = heapq.heappop(open_set)
-            
-            if current == goal:
+            if current == aligned_goal:
                 path = []
                 while current in came_from:
                     path.append(current)
@@ -472,248 +490,562 @@ class SearchAlgorithm:
                 path.reverse()
                 return path
                 
-            for neighbor in self.get_neighbors(current[0], current[1]):
-                new_cost = cost_so_far[current] + 1
+            for neighbor_info in self.get_neighbors(current[0], current[1], "GBFS"):
+                neighbor_pos, _ = neighbor_info  # GBFS ignores cost
                 
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    came_from[neighbor] = current
-                    heapq.heappush(open_set, (new_cost, neighbor))
-                    
+                if neighbor_pos not in visited:
+                    came_from[neighbor_pos] = current
+                    priority = self.manhattan_distance(
+                        neighbor_pos[0], neighbor_pos[1], 
+                        aligned_goal[0], aligned_goal[1]
+                    )
+                    heapq.heappush(open_set, (priority, neighbor_pos))
+        
+        return []
+    
+    def uniform_cost_search(self, start, goal):
+        # Align start to Pacman grid
+        aligned_start = self.get_grid_cell(start[0], start[1], is_dot=False)
+        aligned_goal = self.get_grid_cell(goal[0], goal[1], is_dot=False)
+        
+        open_set = []
+        heapq.heappush(open_set, (0, aligned_start))
+        came_from = {}
+        cost_so_far = {aligned_start: 0}
+        
+        while open_set:
+            current_cost, current = heapq.heappop(open_set)
+            
+            if current == aligned_goal:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return path
+                
+            for neighbor_info in self.get_neighbors(current[0], current[1], "UCS"):
+                neighbor_pos, cost = neighbor_info
+                new_cost = cost_so_far[current] + cost
+                
+                if neighbor_pos not in cost_so_far or new_cost < cost_so_far[neighbor_pos]:
+                    cost_so_far[neighbor_pos] = new_cost
+                    came_from[neighbor_pos] = current
+                    heapq.heappush(open_set, (new_cost, neighbor_pos))
+        
         return []
 
-# Fix the AIPacman update method
-# Replace the AIPacman class with this fixed version:
-
 class AIPacman(Player):
-    def __init__(self, x, y, filename, algorithm= None):
+    """AI-controlled Pacman using search algorithms"""
+    
+    def __init__(self, x, y, filename, search_algorithm="A*"):
         super().__init__(x, y, filename)
-        self.algorithm = algorithm
-        self.path = []
+        self.search_algorithm = search_algorithm
         self.current_target = None
-        self.ghost_safety_distance = 90
-        self.last_path_update = 0
-        self.path_update_delay = 500  # ms between path recalculations
-        self.stuck_timer = 0
-        self.last_position = (x, y)
         
+        # Pathfinding state
+        self.current_path = []
+        self.path_index = 0
+        self.searcher = None
+        self.walls_reference = None
+        
+        # Ghost avoidance
+        self.is_running_away = False
+        self.ghost_danger_distance = 90  # Reduced distance
+        self.ghost_ignore_distance = 180
+        
+        # Track last position to detect stuck state
+        self.last_positions = []
+        self.stuck_counter = 0
+        self.MAX_STUCK_FRAMES = 10
+        
+        # Statistics
+        self.dots_collected = 0
+        self.paths_calculated = 0
+        self.ghosts_avoided = 0
+        self.false_ghost_alarms = 0
+    
     def set_algorithm(self, algorithm):
-        self.algorithm = algorithm
-        self.path = []
-        
+        """Change the search algorithm dynamically"""
+        self.search_algorithm = algorithm
+        self.current_path = []
+        self.path_index = 0
+        self.current_target = None
+        self.paths_calculated = 0
+        print(f"Switched to {algorithm} algorithm")
+    
     def update(self, walls, gate, block_list, monsta_list):
-        current_time = pygame.time.get_ticks()
-        current_pos = (self.rect.left, self.rect.top)    
+        """Main update method - called every frame"""
+        if self.walls_reference is None:
+            self.walls_reference = walls
         
-        # Check if Pacman is stuck
-        if current_pos == self.last_position:
-            self.stuck_timer += 1
-            if self.stuck_timer > 30:  # Reduced from 100 to respond faster
-                self.path = []
-                self.stuck_timer = 0
+        # Check for nearby ghosts with wall-aware detection
+        closest_ghost, ghost_distance, is_dangerous = self.get_closest_dangerous_ghost(monsta_list, walls)
+        
+        # Ghost avoidance logic - only run from reachable ghosts
+        if is_dangerous and ghost_distance < self.ghost_danger_distance:
+            if not self.is_running_away:
+                print(f"⚠ Running from dangerous ghost! Distance: {ghost_distance}")
+                self.ghosts_avoided += 1
+            self.is_running_away = True
+            self.run_away_from_ghost(closest_ghost, walls)
+            # Clear path when running from ghost
+            self.current_path = []
+            self.path_index = 0
         else:
-            self.stuck_timer = 0
-            self.last_position = current_pos
-        
-        # Only recalculate path occasionally to improve performance
-        # Only calculate every few seconds instead of frame, which was the issue in past
-        if current_time - self.last_path_update > self.path_update_delay or not self.path:
-            self.find_new_target(block_list, monsta_list, walls)
-            self.last_path_update = current_time
-        
-        # Reset movement before setting new direction
-        self.change_x = 0
-        self.change_y = 0
-        
-        # Follow the path
-        if self.path and len(self.path) > 0:
-            target_x, target_y = self.path[0]
-            dx = target_x - self.rect.left
-            dy = target_y - self.rect.top
-            # Check if we're close enough to the target (within tolerance)
-            distance_to_target = abs(target_x - self.rect.left) + abs(target_y - self.rect.top)
+            if self.is_running_away:
+                print("✓ Ghost danger passed, resuming dot collection")
+            self.is_running_away = False
             
-            if distance_to_target < 15:  # Tolerance for "reached" target
-                self.path.pop(0)
-                if not self.path:
-                    return
-            
-            # Get next target
-            if self.path:
-                target_x, target_y = self.path[0]
-                
-                # Calculate exact direction needed
-                dx = target_x - self.rect.left
-                dy = target_y - self.rect.top
-                
-                # : Move in only ONE direction at a time, prioritize larger difference
-                if abs(dx) > abs(dy):
-                    # Horizontal movement
-                    if dx > 0:
-                        self.change_x = 30
-                    else:
-                        self.change_x = -30
-                else:
-                    # Vertical movement
-                    if dy > 0:
-                        self.change_y = 30
-                    else:
-                        self.change_y = -30
+            # Follow existing path if we have one
+            if self.current_path and self.path_index < len(self.current_path):
+                self.follow_path(walls)
+            else:
+                # Find new path to dot
+                self.find_direction_to_closest_dot(block_list, walls)
         
         # Call parent update to handle collisions
         super().update(walls, gate)
-    #prioritize safe tiles and then reset path 
-    def get_random_safe_move(self, monsta_list, walls):
-        searcher = SearchAlgorithm(walls)
-        neighbors = searcher.get_neighbors(self.rect.left, self.rect.top)
-
-        safe_moves = []
-        for x, y in neighbors:
-            safe = True
-            for ghost in monsta_list:
-                if self.manhattan_distance(x, y, ghost.rect.left, ghost.rect.top) < self.ghost_safety_distance:
-                    safe = False
-                    break
-            if safe:
-                safe_moves.append((x, y))
-
-        # pick a reasonable move
-        if safe_moves:
-            return [random.choice(safe_moves)]
-        elif neighbors:
-            return [random.choice(neighbors)]
-        
-        # if trapped
-        return []    
-    def find_new_target(self, block_list, monsta_list, walls):
-        current_pos = (self.rect.left, self.rect.top)
-        
-        # Emergency ghost avoidance
-        closest_ghost, ghost_distance = self.get_closest_ghost(monsta_list)
-        if ghost_distance < self.ghost_safety_distance :
-            safe_pos = self.find_safe_position(monsta_list, walls)
-            if safe_pos:
-                self.current_target = safe_pos
-            else:
-                # If no safe position, pick the safest dot
-                self.current_target = self.get_safest_dot(block_list, monsta_list, current_pos)
-        else:
-            # Normal dot collection
-            self.current_target = self.get_closest_dot(block_list, current_pos)
-        
-        
-        # Calculate path to target
-        if self.current_target:
-            searcher = SearchAlgorithm(walls)
-            start = snap_to_grid(self.rect.left, self.rect.top)
-            goal = snap_to_grid(self.current_target[0], self.current_target[1])
-
-            #sx, sy = snap_to_grid(self.rect.left, self.rect.top)
-            #tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
-            if self.algorithm == "A*": #MODIFIED A STAR - made pacman follow path
-                new_path = searcher.a_star_search(start, goal)
-                #sx, sy = snap_to_grid(self.rect.left, self.rect.top)
-                #tx, ty = snap_to_grid(self.current_target[0], self.current_target[1])
-                #self.path = searcher.a_star_search((sx, sy), (tx, ty))
-                if not new_path:
-                    new_path = self.get_random_safe_move(monsta_list, walls)
-                self.path = new_path
-            elif self.algorithm == "GBFS":
-                self.path = searcher.greedy_best_first_search(current_pos, self.current_target)
-            elif self.algorithm == "UCS":
-                self.path = searcher.uniform_cost_search(current_pos, self.current_target)
-
     
-    def get_closest_dot(self, block_list, current_pos):
-        if not block_list:
-            return None
-            
-        closest_dot = None
-        min_distance = float('inf')
-        
-        for dot in block_list:
-            dot_pos = (dot.rect.left, dot.rect.top)
-            distance = self.manhattan_distance(current_pos[0], current_pos[1], dot_pos[0], dot_pos[1])
-            
-            if distance < min_distance:
-                min_distance = distance
-                closest_dot = dot_pos
-                
-        return closest_dot
-    
-    def get_safest_dot(self, block_list, monsta_list, current_pos):
-        if not block_list:
-            return None
-            
-        safest_dot = None
-        best_score = -float('inf')
-        
-        for dot in block_list:
-            dot_pos = (dot.rect.left, dot.rect.top)
-            
-            # Score based on distance to Pacman and distance from ghosts
-            dot_to_pacman = self.manhattan_distance(current_pos[0], current_pos[1], dot_pos[0], dot_pos[1])
-            min_ghost_distance = float('inf')
-            
-            for ghost in monsta_list:
-                ghost_pos = (ghost.rect.left, ghost.rect.top)
-                ghost_dist = self.manhattan_distance(dot_pos[0], dot_pos[1], ghost_pos[0], ghost_pos[1])
-                min_ghost_distance = min(min_ghost_distance, ghost_dist)
-            
-            # Higher score for closer dots and dots farther from ghosts
-            score = min_ghost_distance - (dot_to_pacman * 2)
-            
-            if score > best_score:
-                best_score = score
-                safest_dot = dot_pos
-                
-        return safest_dot
-    
-    def get_closest_ghost(self, monsta_list):
+    def get_closest_dangerous_ghost(self, monsta_list, walls):
+        """Find the closest ghost that's actually dangerous (reachable)"""
         if not monsta_list:
-            return None, float('inf')
+            return None, float('inf'), False
             
         closest_ghost = None
         min_distance = float('inf')
+        is_dangerous = False
         
         for ghost in monsta_list:
-            ghost_pos = (ghost.rect.left, ghost.rect.top)
-            distance = self.manhattan_distance(
-                self.rect.left, self.rect.top, ghost_pos[0], ghost_pos[1])
+            # Calculate straight-line distance
+            distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                               (ghost.rect.centery - self.rect.centery) ** 2)
             
+            # Ignore ghosts that are too far away
+            if distance > self.ghost_ignore_distance:
+                continue
+            
+            # Check if ghost is actually reachable (not blocked by walls)
+            reachable = self.is_ghost_reachable(ghost, walls)
+            
+            # Ghost is dangerous if it's close AND reachable
             if distance < min_distance:
                 min_distance = distance
                 closest_ghost = ghost
-                
-        return closest_ghost, min_distance
+                is_dangerous = reachable and distance < self.ghost_danger_distance
+        
+        return closest_ghost, min_distance, is_dangerous
     
-    def find_safe_position(self, monsta_list, walls):
+    def is_ghost_reachable(self, ghost, walls):
+        """Check if a ghost is reachable (not blocked by walls) using line-of-sight"""
+        # Get Pacman and ghost grid positions
+        pacman_grid = self.get_grid_position(self.rect.centerx, self.rect.centery)
+        ghost_grid = self.get_grid_position(ghost.rect.centerx, ghost.rect.centery)
+        
+        # If they're in the same grid cell, they're definitely reachable
+        if pacman_grid == ghost_grid:
+            return True
+        
+        # Check if there's a direct path using Bresenham's line algorithm
+        line_points = self.get_line_points(pacman_grid, ghost_grid)
+        
+        # Check each point along the line for walls
+        for point in line_points:
+            x, y = point
+            # Convert grid coordinates back to pixel coordinates
+            pixel_x = x * 30 + 6
+            pixel_y = y * 30 + 6
+            
+            # Create a test sprite to check for wall collisions
+            test_sprite = pygame.sprite.Sprite()
+            test_sprite.rect = pygame.Rect(pixel_x, pixel_y, 30, 30)
+            
+            # If we hit a wall, the ghost is not directly reachable
+            if pygame.sprite.spritecollide(test_sprite, walls, False):
+                return False
+        
+        return True
+    
+    def get_grid_position(self, x, y):
+        """Convert pixel coordinates to grid coordinates"""
+        grid_x = (x - 6) // 30
+        grid_y = (y - 6) // 30
+        return (int(grid_x), int(grid_y))
+    
+    def get_line_points(self, start, end):
+        """Get all grid points between two points using Bresenham's line algorithm"""
+        x1, y1 = start
+        x2, y2 = end
+        points = []
+        
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx - dy
+        
+        while True:
+            points.append((x1, y1))
+            if x1 == x2 and y1 == y2:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
+        
+        return points
+    
+    
+    def run_away_from_ghost(self, ghost, walls):
+        """Smart ghost avoidance - move away from reachable ghosts"""
+        if not ghost:
+            return
+        
+        # Reset movement
+        self.change_x = 0
+        self.change_y = 0
+        
+        # Get grid positions
+        pacman_grid = self.get_grid_position(self.rect.centerx, self.rect.centery)
+        ghost_grid = self.get_grid_position(ghost.rect.centerx, ghost.rect.centery)
+        
+        # Calculate direction away from ghost in grid space
+        dx_grid = pacman_grid[0] - ghost_grid[0]
+        dy_grid = pacman_grid[1] - ghost_grid[1]
+        
+        # Try to move in the opposite direction of the ghost
+        # Prioritize the direction with larger difference
+        if abs(dx_grid) > abs(dy_grid):
+            if dx_grid > 0 and self.can_move_right(walls):
+                self.change_x = 30
+            elif dx_grid < 0 and self.can_move_left(walls):
+                self.change_x = -30
+            elif dy_grid > 0 and self.can_move_down(walls):
+                self.change_y = 30
+            elif dy_grid < 0 and self.can_move_up(walls):
+                self.change_y = -30
+        else:
+            if dy_grid > 0 and self.can_move_down(walls):
+                self.change_y = 30
+            elif dy_grid < 0 and self.can_move_up(walls):
+                self.change_y = -30
+            elif dx_grid > 0 and self.can_move_right(walls):
+                self.change_x = 30
+            elif dx_grid < 0 and self.can_move_left(walls):
+                self.change_x = -30
+        
+        # If still no movement, try any safe direction
+        if self.change_x == 0 and self.change_y == 0:
+            safe_directions = []
+            
+            # Check all directions for safety
+            if self.can_move_right(walls):
+                # Check if moving right would move away from ghost
+                test_x = self.rect.left + 30
+                test_distance = math.sqrt((ghost.rect.centerx - test_x) ** 2 + 
+                                        (ghost.rect.centery - self.rect.centery) ** 2)
+                current_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                           (ghost.rect.centery - self.rect.centery) ** 2)
+                if test_distance > current_distance:
+                    safe_directions.append((30, 0, test_distance))
+            
+            if self.can_move_left(walls):
+                test_x = self.rect.left - 30
+                test_distance = math.sqrt((ghost.rect.centerx - test_x) ** 2 + 
+                                        (ghost.rect.centery - self.rect.centery) ** 2)
+                current_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                           (ghost.rect.centery - self.rect.centery) ** 2)
+                if test_distance > current_distance:
+                    safe_directions.append((-30, 0, test_distance))
+            
+            if self.can_move_down(walls):
+                test_y = self.rect.top + 30
+                test_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                        (ghost.rect.centery - test_y) ** 2)
+                current_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                           (ghost.rect.centery - self.rect.centery) ** 2)
+                if test_distance > current_distance:
+                    safe_directions.append((0, 30, test_distance))
+            
+            if self.can_move_up(walls):
+                test_y = self.rect.top - 30
+                test_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                        (ghost.rect.centery - test_y) ** 2)
+                current_distance = math.sqrt((ghost.rect.centerx - self.rect.centerx) ** 2 + 
+                                           (ghost.rect.centery - self.rect.centery) ** 2)
+                if test_distance > current_distance:
+                    safe_directions.append((0, -30, test_distance))
+            
+            # Choose the direction that maximizes distance from ghost
+            if safe_directions:
+                safe_directions.sort(key=lambda x: x[2], reverse=True)  # Sort by distance
+                self.change_x = safe_directions[0][0]
+                self.change_y = safe_directions[0][1]
+            else:
+                # If no safe direction, just try any direction
+                if self.can_move_right(walls):
+                    self.change_x = 30
+                elif self.can_move_left(walls):
+                    self.change_x = -30
+                elif self.can_move_down(walls):
+                    self.change_y = 30
+                elif self.can_move_up(walls):
+                    self.change_y = -30
+    
+    # Keep the can_move_* methods as they were
+    def can_move_right(self, walls):
+        test_x = self.rect.left + 30
+        test_y = self.rect.top
+        test_sprite = pygame.sprite.Sprite()
+        test_sprite.rect = pygame.Rect(test_x, test_y, 30, 30)
+        return not pygame.sprite.spritecollide(test_sprite, walls, False)
+
+    def can_move_left(self, walls):
+        test_x = self.rect.left - 30
+        test_y = self.rect.top
+        test_sprite = pygame.sprite.Sprite()
+        test_sprite.rect = pygame.Rect(test_x, test_y, 30, 30)
+        return not pygame.sprite.spritecollide(test_sprite, walls, False)
+
+    def can_move_up(self, walls):
+        test_x = self.rect.left
+        test_y = self.rect.top - 30
+        test_sprite = pygame.sprite.Sprite()
+        test_sprite.rect = pygame.Rect(test_x, test_y, 30, 30)
+        return not pygame.sprite.spritecollide(test_sprite, walls, False)
+
+    def can_move_down(self, walls):
+        test_x = self.rect.left
+        test_y = self.rect.top + 30
+        test_sprite = pygame.sprite.Sprite()
+        test_sprite.rect = pygame.Rect(test_x, test_y, 30, 30)
+        return not pygame.sprite.spritecollide(test_sprite, walls, False)
+    
+ 
+    def find_direction_to_closest_dot(self, block_list, walls):
+        """Find direction to closest dot using pathfinding algorithms"""
+        if not block_list:
+            return
+        
+        # Initialize searcher if needed
+        if self.searcher is None:
+            self.searcher = SearchAlgorithm(walls)
+        
+        current_pos = (self.rect.centerx, self.rect.centery)
+        
+        # Check if we need a new path
+        need_new_path = False
+        
+        if not self.current_path or self.path_index >= len(self.current_path):
+            need_new_path = True
+            print("No current path, calculating new one...")
+        elif self.current_target:
+            # Check if current target still exists
+            target_exists = False
+            for block in block_list:
+                if (block.rect.centerx, block.rect.centery) == self.current_target:
+                    target_exists = True
+                    break
+            
+            if not target_exists:
+                need_new_path = True
+                print("Target dot collected, calculating new path...")
+        
+        if need_new_path:
+            # Find the closest dot
+            closest_dot = None
+            closest_distance = float('inf')
+            
+            for dot in block_list:
+                dot_pos = (dot.rect.centerx, dot.rect.centery)
+                # Use Manhattan distance for quick comparison
+                distance = abs(dot_pos[0] - current_pos[0]) + abs(dot_pos[1] - current_pos[1])
+                
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_dot = dot
+            
+            if closest_dot:
+                dot_pos = (closest_dot.rect.centerx, closest_dot.rect.centery)
+                print(f"\n=== New target: {dot_pos}, Distance: {closest_distance} ===")
+                self.calculate_path(current_pos, dot_pos)
+                self.current_target = dot_pos
+            else:
+                print("No dots found!")
+    
+    def calculate_path(self, start_pos, target_pos):
+        """Calculate path using selected search algorithm"""
+        if self.searcher is None:
+            return
+        
+        self.paths_calculated += 1
+        print(f"\nCalculating {self.search_algorithm} path #{self.paths_calculated}")
+        print(f"From: {start_pos}")
+        print(f"To: {target_pos}")
+        
+        path = []
+        
+        if self.search_algorithm == "A*":
+            path = self.searcher.a_star_search(start_pos, target_pos)
+        elif self.search_algorithm == "GBFS":
+            path = self.searcher.greedy_best_first_search(start_pos, target_pos)
+        elif self.search_algorithm == "UCS":
+            path = self.searcher.uniform_cost_search(start_pos, target_pos)
+        
+        if path:
+            self.current_path = path
+            self.path_index = 0
+            print(f"✓ {self.search_algorithm} found {len(path)} step path")
+            
+            # Show first few steps
+            max_steps_to_show = min(5, len(path))
+            for i in range(max_steps_to_show):
+                print(f"  Step {i}: {path[i]}")
+            if len(path) > max_steps_to_show:
+                print(f"  ... and {len(path)-max_steps_to_show} more steps")
+        else:
+            print(f"✗ {self.search_algorithm}: No path found to {target_pos}")
+            self.current_path = []
+            self.path_index = 0
+            self.current_target = None
+    
+    def follow_path(self, walls):
+        """Follow the current path"""
+        if not self.current_path:
+            return
+        
+        if self.path_index >= len(self.current_path):
+            print("✓ Path completed successfully!")
+            self.current_path = []
+            self.path_index = 0
+            self.current_target = None
+            return
+        
+        # Get current and target positions
         current_pos = (self.rect.left, self.rect.top)
-        searcher = SearchAlgorithm(walls)
-        neighbors = searcher.get_neighbors(current_pos[0], current_pos[1])
+        target_pos = self.current_path[self.path_index]
         
-        if not neighbors:
-            return None
-            
-        safest_pos = None
-        max_min_distance = -1
+        # Track movement to detect stuck state
+        self.last_positions.append(current_pos)
+        if len(self.last_positions) > 5:
+            self.last_positions.pop(0)
         
-        for neighbor in neighbors:
-            min_distance_to_ghost = float('inf')
+        # Check if stuck (not moving for several frames)
+        if len(self.last_positions) == 5:
+            # Check if all recent positions are the same
+            if all(pos == self.last_positions[0] for pos in self.last_positions):
+                self.stuck_counter += 1
+                if self.stuck_counter > self.MAX_STUCK_FRAMES:
+                    print("⚠ Stuck detected! Clearing path to recalculate")
+                    self.current_path = []
+                    self.path_index = 0
+                    self.current_target = None
+                    self.stuck_counter = 0
+                    return
+            else:
+                self.stuck_counter = 0
+        
+        # Check if we've reached the current waypoint
+        # Use the SearchAlgorithm's grid alignment check
+        current_grid = self.searcher.get_grid_cell(current_pos[0], current_pos[1], is_dot=False)
+        target_grid = self.searcher.get_grid_cell(target_pos[0], target_pos[1], is_dot=False)
+        
+        # Print debug info occasionally
+        if random.random() < 0.05:  # 5% chance
+            print(f"Following path: {self.path_index}/{len(self.current_path)-1}")
+            print(f"  Current: {current_pos} -> {current_grid}")
+            print(f"  Target: {target_pos} -> {target_grid}")
+        
+        # Check if we're at the target grid cell
+        if current_grid == target_grid:
+            print(f"✓ Reached waypoint {self.path_index} at {current_grid}")
+            self.path_index += 1
             
-            for ghost in monsta_list:
-                ghost_pos = (ghost.rect.left, ghost.rect.top)
-                distance = self.manhattan_distance(neighbor[0], neighbor[1], ghost_pos[0], ghost_pos[1])
-                min_distance_to_ghost = min(min_distance_to_ghost, distance)
+            # If reached final waypoint
+            if self.path_index >= len(self.current_path):
+                print("✓ Reached final destination!")
+                self.current_path = []
+                self.path_index = 0
+                self.current_target = None
+                return
             
-            if min_distance_to_ghost > max_min_distance:
-                max_min_distance = min_distance_to_ghost
-                safest_pos = neighbor
-                
-        return safest_pos
+            # Update to next waypoint
+            target_pos = self.current_path[self.path_index]
+        
+        # Move toward the current waypoint
+        self.move_to_position(target_pos)
     
-    def manhattan_distance(self, x1, y1, x2, y2):
-        return abs(x2 - x1) + abs(y2 - y1)
+    def move_to_position(self, target_pos):
+        """Move directly toward a specific position"""
+        current_pos = (self.rect.left, self.rect.top)
+        
+        # Calculate direction to target
+        dx = target_pos[0] - current_pos[0]
+        dy = target_pos[1] - current_pos[1]
+        
+        # Reset movement
+        self.change_x = 0
+        self.change_y = 0
+        
+        # Determine which direction to move based on larger difference
+        # Try to move in primary direction first
+        if abs(dx) > abs(dy):
+            # Horizontal is primary
+            if dx > 0 and self.can_move_right(self.walls_reference):
+                self.change_x = 30
+            elif dx < 0 and self.can_move_left(self.walls_reference):
+                self.change_x = -30
+            # If horizontal blocked, try vertical
+            elif dy > 0 and self.can_move_down(self.walls_reference):
+                self.change_y = 30
+            elif dy < 0 and self.can_move_up(self.walls_reference):
+                self.change_y = -30
+        else:
+            # Vertical is primary
+            if dy > 0 and self.can_move_down(self.walls_reference):
+                self.change_y = 30
+            elif dy < 0 and self.can_move_up(self.walls_reference):
+                self.change_y = -30
+            # If vertical blocked, try horizontal
+            elif dx > 0 and self.can_move_right(self.walls_reference):
+                self.change_x = 30
+            elif dx < 0 and self.can_move_left(self.walls_reference):
+                self.change_x = -30
+        
+        # Debug: If no movement possible
+        if self.change_x == 0 and self.change_y == 0:
+            print(f"⚠ Can't move toward {target_pos} from {current_pos}")
+            # Try any available direction as fallback
+            directions = [
+                (30, 0, self.can_move_right),
+                (-30, 0, self.can_move_left),
+                (0, 30, self.can_move_down),
+                (0, -30, self.can_move_up)
+            ]
+            
+            for dx_val, dy_val, check_func in directions:
+                if check_func(self.walls_reference):
+                    self.change_x = dx_val
+                    self.change_y = dy_val
+                    break
+    
+    def get_stats(self):
+        """Get current statistics"""
+        return {
+            "algorithm": self.search_algorithm,
+            "paths_calculated": self.paths_calculated,
+            "ghosts_avoided": self.ghosts_avoided,
+            "false_alarms": self.false_ghost_alarms,
+            "current_path_length": len(self.current_path) if self.current_path else 0,
+            "current_waypoint": self.path_index if self.current_path else 0,
+            "is_running_from_ghost": self.is_running_away,
+            "has_target": self.current_target is not None
+        }
+    
+
 # Call this function so the Pygame library can initialize itself
 pygame.init()
   
@@ -831,33 +1163,22 @@ def startGame(algorithm="A*"):
     Pacman = AIPacman(w, p_h, "images/Trollman.png", algorithm)
     all_sprites_list.add(Pacman)
     pacman_collide.add(Pacman)
-
-    Pacman.spawn_x = Pacman.rect.left
-    Pacman.spawn_y = Pacman.rect.top
-
+   
     Blinky=Ghost(w, b_h, "images/Blinky.png")
     monsta_list.add(Blinky)
     all_sprites_list.add(Blinky)
-    Blinky.spawn_x = Blinky.rect.left
-    Blinky.spawn_y = Blinky.rect.top
 
     Pinky=Ghost(w, m_h, "images/Pinky.png")
     monsta_list.add(Pinky)
     all_sprites_list.add(Pinky)
-    Pinky.spawn_x = Pinky.rect.left
-    Pinky.spawn_y = Pinky.rect.top
-
+   
     Inky=Ghost(i_w, m_h, "images/Inky.png")
     monsta_list.add(Inky)
     all_sprites_list.add(Inky)
-    Inky.spawn_x = Inky.rect.left
-    Inky.spawn_y = Inky.rect.top
-
+   
     Clyde=Ghost(c_w, m_h, "images/Clyde.png")
     monsta_list.add(Clyde)
     all_sprites_list.add(Clyde)
-    Clyde.spawn_x = Clyde.rect.left
-    Clyde.spawn_y = Clyde.rect.top
 
     # Draw the grid
     for row in range(19):
@@ -911,9 +1232,6 @@ def startGame(algorithm="A*"):
                     return "menu"
                 elif event.key == pygame.K_ESCAPE: 
                     pygame.quit()
-                elif event.key == pygame.K_RETURN:
-                    reset_game(Pacman, monsta_list, block_list, block_list)
-                    return "restart"
 
         # Update game state
         Pacman.update(wall_list, gate, block_list, monsta_list)
@@ -947,6 +1265,11 @@ def startGame(algorithm="A*"):
         if len(blocks_hit_list) > 0:
             score += len(blocks_hit_list)
             dots_collected += len(blocks_hit_list)
+            Pacman.current_target = None  # <<< ADD THIS LINE
+
+            # When a dot is collected, clear the current path so we recalculate
+            Pacman.current_path = []
+            Pacman.path_index = 0
 
         # Update survival time
         survival_time = (pygame.time.get_ticks() - start_time) // 1000
@@ -962,9 +1285,13 @@ def startGame(algorithm="A*"):
         text = font.render(f"Score: {score}/{bll}", True, red)
         screen.blit(text, [10, 10])
         
-        current_algo = Pacman.algorithm
+        current_algo = Pacman.search_algorithm
+        algo_status = current_algo
+        if Pacman.current_path:
+            algo_status = f"{current_algo} (Pathfinding: {len(Pacman.current_path)-Pacman.path_index} steps)"
+
             
-        algorithm_text = font.render(f"Algorithm: {current_algo}", True, green)
+        algorithm_text = font.render(f"Algorithm: {algo_status}", True, green)
         screen.blit(algorithm_text, [10, 40])
         
         time_text = font.render(f"Time: {survival_time}s", True, purple)
@@ -972,6 +1299,14 @@ def startGame(algorithm="A*"):
         
         stats_text = font.render(f"Dots: {dots_collected} Ghosts Avoided: {ghosts_avoided}", True, yellow)
         screen.blit(stats_text, [10, 100])
+        
+        # Show ghost avoidance status
+        if Pacman.is_running_away:
+            ghosts_avoided += 1
+            status_text = font.render("Status: RUNNING FROM GHOST!", True, red)
+        else:
+            status_text = font.render("Status: Collecting dots", True, green)
+        screen.blit(status_text, [10, 130])
         
         # Show controls
         controls_text = font.render("Press M for Menu, 1/2/3 to switch algorithms", True, cyan)
@@ -984,21 +1319,15 @@ def startGame(algorithm="A*"):
                    dots_collected, ghosts_avoided, algorithm_changes, algorithm)
             if result == "menu":
                 return "menu"
-            elif result == "restart":
-                return startGame(algorithm)
+
         # Check for ghost collision
         monsta_hit_list = pygame.sprite.spritecollide(Pacman, monsta_list, False)
         if monsta_hit_list:
-            # Count as avoided if Pacman was actively running away
-            if Pacman.current_target and Pacman.current_target != Pacman.get_closest_dot(block_list, (Pacman.rect.left, Pacman.rect.top)):
-                ghosts_avoided += 1
             result = doNext("Game Over", 235, all_sprites_list, block_list, 
-                   monsta_list, pacman_collide, wall_list, gate, survival_time, 
-                   dots_collected, ghosts_avoided, algorithm_changes, algorithm)
+                    monsta_list, pacman_collide, wall_list, gate, survival_time, 
+                    dots_collected, ghosts_avoided, algorithm_changes, algorithm)
             if result == "menu":
                 return "menu"
-            elif result == "restart":
-                return startGame(algorithm)
 
         pygame.display.flip()
         clock.tick(10)
@@ -1018,12 +1347,12 @@ def doNext(message, left, all_sprites_list, block_list, monsta_list,
                     pygame.quit()
                     return "quit"
                 if event.key == pygame.K_RETURN:
-                    #del all_sprites_list
-                    #del block_list
-                    #del monsta_list
-                    #del pacman_collide
-                    #del wall_list
-                    #del gate
+                    del all_sprites_list
+                    del block_list
+                    del monsta_list
+                    del pacman_collide
+                    del wall_list
+                    del gate
                     return "restart"
                 if event.key == pygame.K_m:
                     return "menu"
@@ -1082,10 +1411,7 @@ def main():
             break
         elif result == "menu":
             continue  # Go back to menu
-        elif result == "restart":
-            continue #restart and keep selected alg
 
 if __name__ == "__main__":
     main()
     pygame.quit()
-
