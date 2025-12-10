@@ -373,12 +373,12 @@ class SearchAlgorithm:
                 (0, -self.block_size)   # Up
             ]
         elif algorithm == "UCS":
-            # UCS: Try cheaper directions first (cost-based order)
+            # UCS: Direction
             directions = [
-                (0, -self.block_size),  # Up (cheapest at 0.8)
-                (self.block_size, 0),   # Right (1.0)
-                (-self.block_size, 0),  # Left (1.0)
-                (0, self.block_size),   # Down (most expensive at 1.2)
+                (0, -self.block_size),  # Up 
+                (self.block_size, 0),   # Right 
+                (-self.block_size, 0),  # Left 
+                (0, self.block_size),   # Down 
             ]
         else:  # A*
             # A*: Standard order
@@ -391,10 +391,10 @@ class SearchAlgorithm:
         
         # Add random variations to costs to create more differences between algorithms
         costs = {
-            (self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),    # Right
-            (-self.block_size, 0): 1.0 + random.uniform(-0.1, 0.1),   # Left  
-            (0, self.block_size): 1.2 + random.uniform(-0.1, 0.1),    # Down
-            (0, -self.block_size): 0.8 + random.uniform(-0.1, 0.1)    # Up
+            (self.block_size, 0): 1.0 + random.uniform(1, 100),    # Right
+            (-self.block_size, 0): 1.0 + random.uniform(1, 100),   # Left  
+            (0, self.block_size): 1.2 + random.uniform(1, 100),    # Down
+            (0, -self.block_size): 0.8 + random.uniform(1, 100)    # Up
         }
         
         for dx, dy in directions:
@@ -1164,13 +1164,13 @@ def startGame(algorithm="A*"):
     all_sprites_list.add(Pacman)
     pacman_collide.add(Pacman)
    
-    Blinky=Ghost(w, b_h, "images/Blinky.png")
-    monsta_list.add(Blinky)
-    all_sprites_list.add(Blinky)
+    # Blinky=Ghost(w, b_h, "images/Blinky.png")
+    # monsta_list.add(Blinky)
+    # all_sprites_list.add(Blinky)
 
-    Pinky=Ghost(w, m_h, "images/Pinky.png")
-    monsta_list.add(Pinky)
-    all_sprites_list.add(Pinky)
+    # Pinky=Ghost(w, m_h, "images/Pinky.png")
+    # monsta_list.add(Pinky)
+    # all_sprites_list.add(Pinky)
    
     Inky=Ghost(i_w, m_h, "images/Inky.png")
     monsta_list.add(Inky)
@@ -1236,17 +1236,17 @@ def startGame(algorithm="A*"):
         # Update game state
         Pacman.update(wall_list, gate, block_list, monsta_list)
 
-        returned = Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
-        p_turn = returned[0]
-        p_steps = returned[1]
-        Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
-        Pinky.update(wall_list, False)
+        # returned = Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
+        # p_turn = returned[0]
+        # p_steps = returned[1]
+        # Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
+        # Pinky.update(wall_list, False)
 
-        returned = Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
-        b_turn = returned[0]
-        b_steps = returned[1]
-        Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
-        Blinky.update(wall_list, False)
+        # returned = Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
+        # b_turn = returned[0]
+        # b_steps = returned[1]
+        # Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
+        # Blinky.update(wall_list, False)
 
         returned = Inky.changespeed(Inky_directions, False, i_turn, i_steps, il)
         i_turn = returned[0]
