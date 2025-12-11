@@ -576,6 +576,18 @@ class AIPacman(Player):
     
     def update(self, walls, gate, block_list, monsta_list):
         """Main update method - called every frame"""
+        if len(block_list) == 0: 
+            if self.change_x != 0 or self.change_y != 0:  # Only print once
+                print("✓ All dots collected! Stopping movement.")
+            self.change_x = 0
+            self.change_y = 0
+            self.is_running_away = False
+            self.current_path = []
+            self.path_index = 0
+            self.current_target = None
+            # Call parent update to handle collisions
+            super().update(walls, gate)
+            return
         if self.walls_reference is None:
             self.walls_reference = walls
         
@@ -596,7 +608,6 @@ class AIPacman(Player):
             if self.is_running_away:
                 print("✓ Ghost danger passed, resuming dot collection")
             self.is_running_away = False
-            
             # Follow existing path if we have one
             if self.current_path and self.path_index < len(self.current_path):
                 self.follow_path(walls)
@@ -827,7 +838,13 @@ class AIPacman(Player):
  
     def find_direction_to_closest_dot(self, block_list, walls):
         """Find direction to closest dot using pathfinding algorithms"""
-        if not block_list:
+        if not block_list or len(block_list) == 0:
+            self.change_x = 0
+            self.change_y = 0
+            self.current_path = []
+            self.path_index = 0
+            self.current_target = None
+            print("✓ All dots collected!")
             return
         
         # Initialize searcher if needed
@@ -879,7 +896,7 @@ class AIPacman(Player):
     def calculate_path(self, start_pos, target_pos):
         """Calculate path using selected search algorithm"""
         if self.searcher is None:
-            return
+            return            
         
         self.paths_calculated += 1
         print(f"\nCalculating {self.search_algorithm} path #{self.paths_calculated}")
@@ -928,25 +945,6 @@ class AIPacman(Player):
         current_pos = (self.rect.left, self.rect.top)
         target_pos = self.current_path[self.path_index]
         
-        # Track movement to detect stuck state
-        self.last_positions.append(current_pos)
-        if len(self.last_positions) > 5:
-            self.last_positions.pop(0)
-        
-        # Check if stuck (not moving for several frames)
-        if len(self.last_positions) == 5:
-            # Check if all recent positions are the same
-            if all(pos == self.last_positions[0] for pos in self.last_positions):
-                self.stuck_counter += 1
-                if self.stuck_counter > self.MAX_STUCK_FRAMES:
-                    print("⚠ Stuck detected! Clearing path to recalculate")
-                    self.current_path = []
-                    self.path_index = 0
-                    self.current_target = None
-                    self.stuck_counter = 0
-                    return
-            else:
-                self.stuck_counter = 0
         
         # Check if we've reached the current waypoint
         # Use the SearchAlgorithm's grid alignment check
@@ -1014,23 +1012,6 @@ class AIPacman(Player):
                 self.change_x = 30
             elif dx < 0 and self.can_move_left(self.walls_reference):
                 self.change_x = -30
-        
-        # Debug: If no movement possible
-        if self.change_x == 0 and self.change_y == 0:
-            print(f"⚠ Can't move toward {target_pos} from {current_pos}")
-            # Try any available direction as fallback
-            directions = [
-                (30, 0, self.can_move_right),
-                (-30, 0, self.can_move_left),
-                (0, 30, self.can_move_down),
-                (0, -30, self.can_move_up)
-            ]
-            
-            for dx_val, dy_val, check_func in directions:
-                if check_func(self.walls_reference):
-                    self.change_x = dx_val
-                    self.change_y = dy_val
-                    break
     
     def get_stats(self):
         """Get current statistics"""
