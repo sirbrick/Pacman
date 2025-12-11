@@ -369,7 +369,7 @@ class SearchAlgorithm:
        test_sprite.rect = pygame.Rect(x, y, 30, 30)
       
        # Check if position is within bounds
-       if x < 6 or x > 570 or y < 6 or y > 570:
+       if x < 6 or x > 606 or y < 6 or y > 606:
            return False
           
        # Check for wall collisions
@@ -580,7 +580,6 @@ class AIPacman(Player):
        self.dots_collected = 0
        self.paths_calculated = 0
        self.ghosts_avoided = 0
-       self.false_ghost_alarms = 0
   
    def set_algorithm(self, algorithm):
        """Change the search algorithm dynamically"""
@@ -593,18 +592,6 @@ class AIPacman(Player):
   
    def update(self, walls, gate, block_list, monsta_list):
        """Main update method - called every frame"""
-       if len(block_list) == 0:
-           if self.change_x != 0 or self.change_y != 0:  # Only print once
-               print("✓ All dots collected! Stopping movement.")
-           self.change_x = 0
-           self.change_y = 0
-           self.is_running_away = False
-           self.current_path = []
-           self.path_index = 0
-           self.current_target = None
-           # Call parent update to handle collisions
-           super().update(walls, gate)
-           return
        if self.walls_reference is None:
            self.walls_reference = walls
       
@@ -614,7 +601,7 @@ class AIPacman(Player):
        # Ghost avoidance logic - only run from reachable ghosts
        if is_dangerous and ghost_distance < self.ghost_danger_distance:
            if not self.is_running_away:
-               print(f"⚠ Running from dangerous ghost! Distance: {ghost_distance}")
+               print(f"Running from dangerous ghost! Distance: {ghost_distance}")
                self.ghosts_avoided += 1
            self.is_running_away = True
            self.run_away_from_ghost(closest_ghost, walls)
@@ -623,7 +610,7 @@ class AIPacman(Player):
            self.path_index = 0
        else:
            if self.is_running_away:
-               print("✓ Ghost danger passed, resuming dot collection")
+               print("Ghost danger passed, resuming dot collection")
            self.is_running_away = False
            # Follow existing path if we have one
            if self.current_path and self.path_index < len(self.current_path):
@@ -856,61 +843,53 @@ class AIPacman(Player):
        return not pygame.sprite.spritecollide(test_sprite, walls, False)
   
    def find_direction_to_closest_dot(self, block_list, walls):
-       """Find direction to closest dot using pathfinding algorithms"""
-       if not block_list or len(block_list) == 0:
-           self.change_x = 0
-           self.change_y = 0
-           self.current_path = []
-           self.path_index = 0
-           self.current_target = None
-           print("✓ All dots collected!")
-           return
-      
-       # Initialize searcher if needed
-       if self.searcher is None:
-           self.searcher = SearchAlgorithm(walls)
-      
-       current_pos = (self.rect.centerx, self.rect.centery)
-      
-       # Check if we need a new path
-       need_new_path = False
-      
-       if not self.current_path or self.path_index >= len(self.current_path):
-           need_new_path = True
-           print("No current path, calculating new one...")
-       elif self.current_target:
-           # Check if current target still exists
-           target_exists = False
-           for block in block_list:
-               if (block.rect.centerx, block.rect.centery) == self.current_target:
-                   target_exists = True
-                   break
-          
-           if not target_exists:
-               need_new_path = True
-               print("Target dot collected, calculating new path...")
-      
-       if need_new_path:
-           # Find the closest dot
-           closest_dot = None
-           closest_distance = float('inf')
-          
-           for dot in block_list:
-               dot_pos = (dot.rect.centerx, dot.rect.centery)
-               # Use Manhattan distance for quick comparison
-               distance = abs(dot_pos[0] - current_pos[0]) + abs(dot_pos[1] - current_pos[1])
-              
-               if distance < closest_distance:
-                   closest_distance = distance
-                   closest_dot = dot
-          
-           if closest_dot:
-               dot_pos = (closest_dot.rect.centerx, closest_dot.rect.centery)
-               print(f"\n=== New target: {dot_pos}, Distance: {closest_distance} ===")
-               self.calculate_path(current_pos, dot_pos)
-               self.current_target = dot_pos
-           else:
-               print("No dots found!")
+    """Find direction to closest dot using pathfinding algorithms"""
+    
+    # Initialize searcher if needed
+    if self.searcher is None:
+        self.searcher = SearchAlgorithm(walls)
+    
+    current_pos = (self.rect.centerx, self.rect.centery)
+    
+    # Check if we need a new path
+    need_new_path = False
+    
+    if not self.current_path or self.path_index >= len(self.current_path):
+        need_new_path = True
+        print("No current path, calculating new one...")
+    elif self.current_target is not None:  # Check if target exists (even if it's None)
+        # Check if current target still exists
+        target_exists = False
+        for block in block_list:
+            if (block.rect.centerx, block.rect.centery) == self.current_target:
+                target_exists = True
+                break
+        
+        if not target_exists:
+            need_new_path = True
+            self.current_target = None  # Clear the target
+            
+    if need_new_path:
+        # Find the closest dot
+        closest_dot = None
+        closest_distance = float('inf')
+        
+        for dot in block_list:
+            dot_pos = (dot.rect.centerx, dot.rect.centery)
+            # Use Manhattan distance for quick comparison
+            distance = abs(dot_pos[0] - current_pos[0]) + abs(dot_pos[1] - current_pos[1])
+            
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_dot = dot
+        
+        if closest_dot:
+            dot_pos = (closest_dot.rect.centerx, closest_dot.rect.centery)
+            print(f"\n=== New target: {dot_pos}, Distance: {closest_distance} ===")
+            self.calculate_path(current_pos, dot_pos)
+            self.current_target = dot_pos
+        else:
+            print("No dots found!")
   
    def calculate_path(self, start_pos, target_pos):
        """Calculate path using selected search algorithm"""
@@ -934,7 +913,7 @@ class AIPacman(Player):
        if path:
            self.current_path = path
            self.path_index = 0
-           print(f"✓ {self.search_algorithm} found {len(path)} step path")
+           print(f"{self.search_algorithm} found {len(path)} step path")
           
            # Show first few steps
            max_steps_to_show = min(5, len(path))
@@ -952,14 +931,7 @@ class AIPacman(Player):
        """Follow the current path"""
        if not self.current_path:
            return
-      
-       if self.path_index >= len(self.current_path):
-           print("✓ Path completed successfully!")
-           self.current_path = []
-           self.path_index = 0
-           self.current_target = None
-           return
-      
+       
        # Get current and target positions
        current_pos = (self.rect.left, self.rect.top)
        target_pos = self.current_path[self.path_index]
@@ -969,25 +941,16 @@ class AIPacman(Player):
        # Use the SearchAlgorithm's grid alignment check
        current_grid = self.searcher.get_grid_cell(current_pos[0], current_pos[1], is_dot=False)
        target_grid = self.searcher.get_grid_cell(target_pos[0], target_pos[1], is_dot=False)
-      
-       # Print debug info occasionally
-       if random.random() < 0.05:  # 5% chance
-           print(f"Following path: {self.path_index}/{len(self.current_path)-1}")
-           print(f"  Current: {current_pos} -> {current_grid}")
-           print(f"  Target: {target_pos} -> {target_grid}")
-      
+
        # Check if we're at the target grid cell
        if current_grid == target_grid:
-           print(f"✓ Reached waypoint {self.path_index} at {current_grid}")
+           print(f"Reached waypoint {self.path_index} at {current_grid}")
            self.path_index += 1
           
            # If reached final waypoint
            if self.path_index >= len(self.current_path):
-               print("✓ Reached final destination!")
+               print("Reached final destination!")
                self.current_path = []
-               self.path_index = 0
-               self.current_target = None
-               return
           
            # Update to next waypoint
            target_pos = self.current_path[self.path_index]
@@ -1031,19 +994,6 @@ class AIPacman(Player):
                self.change_x = 30
            elif dx < 0 and self.can_move_left(self.walls_reference):
                self.change_x = -30
-  
-   def get_stats(self):
-       """Get current statistics"""
-       return {
-           "algorithm": self.search_algorithm,
-           "paths_calculated": self.paths_calculated,
-           "ghosts_avoided": self.ghosts_avoided,
-           "false_alarms": self.false_ghost_alarms,
-           "current_path_length": len(self.current_path) if self.current_path else 0,
-           "current_waypoint": self.path_index if self.current_path else 0,
-           "is_running_from_ghost": self.is_running_away,
-           "has_target": self.current_target is not None
-       }
   
 
 
@@ -1175,15 +1125,6 @@ def startGame(algorithm="A*"):
    all_sprites_list.add(Pacman)
    pacman_collide.add(Pacman)
  
-   # Blinky=Ghost(w, b_h, "images/Blinky.png")
-   # monsta_list.add(Blinky)
-   # all_sprites_list.add(Blinky)
-
-
-   # Pinky=Ghost(w, m_h, "images/Pinky.png")
-   # monsta_list.add(Pinky)
-   # all_sprites_list.add(Pinky)
- 
    Inky=Ghost(i_w, m_h, "images/Inky.png")
    monsta_list.add(Inky)
    all_sprites_list.add(Inky)
@@ -1255,21 +1196,6 @@ def startGame(algorithm="A*"):
        # Update game state
        Pacman.update(wall_list, gate, block_list, monsta_list)
 
-
-       # returned = Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
-       # p_turn = returned[0]
-       # p_steps = returned[1]
-       # Pinky.changespeed(Pinky_directions, False, p_turn, p_steps, pl)
-       # Pinky.update(wall_list, False)
-
-
-       # returned = Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
-       # b_turn = returned[0]
-       # b_steps = returned[1]
-       # Blinky.changespeed(Blinky_directions, False, b_turn, b_steps, bl)
-       # Blinky.update(wall_list, False)
-
-
        returned = Inky.changespeed(Inky_directions, False, i_turn, i_steps, il)
        i_turn = returned[0]
        i_steps = returned[1]
@@ -1289,10 +1215,8 @@ def startGame(algorithm="A*"):
        if len(blocks_hit_list) > 0:
            score += len(blocks_hit_list)
            dots_collected += len(blocks_hit_list)
-           Pacman.current_target = None  # <<< ADD THIS LINE
 
-
-           # When a dot is collected, clear the current path so we recalculate
+        # When a dot is collected, clear the current path so we recalculate
            Pacman.current_path = []
            Pacman.path_index = 0
 
